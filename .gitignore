@@ -1,0 +1,26 @@
+# === Secrets & Config sensible ===
+.env
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# === Données utilisateur (quiz générés) ===
+archives/
+storage_temp/
+
+# === Fichiers systeme & editeurs ===
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# === Logs ===
+*.log

@@ -1,0 +1,669 @@
+// --- Utilitaire : Distance de Levenshtein (tolérance aux fautes de frappe) ---
+function levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    const dp = Array.from({length: m + 1}, (_, i) => [i, ...Array(n).fill(0)]);
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            dp[i][j] = a[i-1] === b[j-1]
+                ? dp[i-1][j-1]
+                : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+        }
+    }
+    return dp[m][n];
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    // --- Elements DOM ---
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const browseBtn = document.getElementById('browse-btn');
+    const uploadInitial = document.getElementById('upload-initial');
+    const uploadLoading = document.getElementById('upload-loading');
+    
+    const uploadSection = document.getElementById('upload-section');
+    const quizSection = document.getElementById('quiz-section');
+    const footerProgress = document.getElementById('footer-progress');
+    
+    const btnHome = document.getElementById('btn-home');
+
+    // Ping régulier du Heartbeat pour maintenir le serveur en vie
+    setInterval(() => {
+        fetch('/api/heartbeat', { method: 'POST' }).catch(() => {});
+    }, 2000);
+
+    // Sliders de Paramétrage Adulte
+    const numQcmInput = document.getElementById('num-qcm-input');
+    const numQcmLabel = document.getElementById('num-qcm-label');
+    const numBooleanInput = document.getElementById('num-boolean-input');
+    const numBooleanLabel = document.getElementById('num-boolean-label');
+    const numDirectInput = document.getElementById('num-direct-input');
+    const numDirectLabel = document.getElementById('num-direct-label');
+    const numTotalLabel = document.getElementById('num-total-label');
+
+    function updateTotal() {
+        const qcm = parseInt(numQcmInput.value) || 0;
+        const bool = parseInt(numBooleanInput.value) || 0;
+        const direct = parseInt(numDirectInput.value) || 0;
+        numQcmLabel.textContent = qcm;
+        numBooleanLabel.textContent = bool;
+        numDirectLabel.textContent = direct;
+        numTotalLabel.textContent = qcm + bool + direct;
+    }
+
+    const archivesList = document.getElementById('archives-list');
+    const mainTitle = document.getElementById('main-title');
+    const mainSubtitle = document.getElementById('main-subtitle');
+    const introSection = document.getElementById('intro-section');
+    const summaryList = document.getElementById('summary-list');
+    const startQuizBtn = document.getElementById('start-quiz-btn');
+    startQuizBtn.addEventListener('click', () => {
+        introSection.classList.add('hidden');
+        quizSection.classList.remove('hidden');
+        footerProgress.classList.remove('hidden');
+        renderQuestion();
+    });
+
+    // Modale HTML
+    const confirmModal = document.getElementById('confirm-modal');
+    const confirmModalCard = document.getElementById('confirm-modal-card');
+    const modalNumQ = document.getElementById('modal-num-q');
+    const modalCancel = document.getElementById('modal-cancel');
+    const modalConfirm = document.getElementById('modal-confirm');
+    let pendingFiles = [];
+
+    // --- Variables d'Etat du Quiz ---
+    let currentQuiz = null;
+    let currentQuestionIndex = 0;
+    let score = 0;
+    let questionResults = []; // [{type, question, isCorrect}]
+
+    // --- Initiation : Charger les archives ---
+    loadArchives();
+
+    // UI Listeners
+    document.querySelectorAll('.slider-config').forEach(sl => sl.addEventListener('input', updateTotal));
+    btnHome.addEventListener('click', resetToUpload);
+    
+    browseBtn.addEventListener('click', () => fileInput.click());
+    
+
+
+    // Modal UI listeners
+    function closeConfirmModal() {
+        confirmModal.classList.add('opacity-0', 'pointer-events-none');
+        confirmModalCard.classList.replace('scale-100', 'scale-95');
+        pendingFiles = [];
+        fileInput.value = "";
+    }
+
+    modalCancel.addEventListener('click', closeConfirmModal);
+    
+    modalConfirm.addEventListener('click', () => {
+        if (!pendingFiles.length) return;
+        const files = pendingFiles;
+        const qcm = numQcmInput.value;
+        const bool = numBooleanInput.value;
+        const dir = numDirectInput.value;
+        closeConfirmModal();
+        submitFilesToAPI(files, qcm, bool, dir);
+    });
+
+    // --- Drag and Drop Logic ---
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-primary', 'bg-secondary-container/10');
+    });
+    
+    ['dragleave', 'dragend'].forEach(type => {
+        dropZone.addEventListener(type, (e) => {
+            dropZone.classList.remove('border-primary', 'bg-secondary-container/10');
+        });
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-primary', 'bg-secondary-container/10');
+        if (e.dataTransfer.files.length > 0) {
+            processFiles(Array.from(e.dataTransfer.files));
+        }
+    });
+
+    // --- Fichiers via bouton browse ---
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) processFiles(Array.from(e.target.files));
+    });
+
+    // --- API & Logique Principale ---
+    async function processFiles(files) {
+        const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf'];
+        const valid = files.filter(f => validTypes.includes(f.type));
+        const invalid = files.filter(f => !validTypes.includes(f.type));
+
+        const errorBox = document.getElementById('upload-format-error');
+        const errorMsg = document.getElementById('upload-format-error-msg');
+
+        // Toujours effacer l'erreur précédente
+        errorBox.classList.add('hidden');
+
+        if (invalid.length > 0) {
+            const names = invalid.map(f => `"${f.name}"`).join(', ');
+            const ext = invalid.map(f => {
+                const parts = f.name.split('.');
+                return parts.length > 1 ? `.${parts.pop().toUpperCase()}` : 'inconnu';
+            }).join(', ');
+            errorMsg.textContent = `❌ Format non supporté (${ext}) : ${names}. Merci d'utiliser un fichier PDF, PNG, JPEG ou JPG.`;
+            errorBox.classList.remove('hidden');
+            errorBox.classList.add('fade-in');
+        }
+
+        if (valid.length === 0) {
+            return;
+        }
+
+        const total = (parseInt(numQcmInput.value) || 0) + (parseInt(numBooleanInput.value) || 0) + (parseInt(numDirectInput.value) || 0);
+        if (total === 0) {
+            alert('Veuillez sélectionner au moins 1 question dans les réglages.');
+            return;
+        }
+
+        pendingFiles = valid;
+        modalNumQ.textContent = `${total} question${total > 1 ? 's' : ''}`;
+
+        // Afficher la liste des fichiers dans la modal
+        const modalNumFiles = document.getElementById('modal-num-files');
+        const modalFilesList = document.getElementById('modal-files-list');
+        modalNumFiles.textContent = `${valid.length} photo${valid.length > 1 ? 's' : ''}`;
+        modalFilesList.innerHTML = '';
+        valid.forEach((f, i) => {
+            const item = document.createElement('div');
+            item.className = 'flex items-center gap-2 text-xs font-semibold text-indigo-700';
+            item.innerHTML = `
+                <span class="w-5 h-5 rounded-full bg-secondary/10 flex items-center justify-center text-secondary shrink-0 font-black">${i + 1}</span>
+                <span class="truncate">${f.name}</span>
+                <span class="ml-auto text-indigo-300 shrink-0">${(f.size / 1024).toFixed(0)} Ko</span>
+            `;
+            modalFilesList.appendChild(item);
+        });
+
+        // Afficher la modal (et effacer toute erreur précédente)
+        errorBox.classList.add('hidden');
+        confirmModal.classList.remove('opacity-0', 'pointer-events-none');
+        confirmModalCard.classList.replace('scale-95', 'scale-100');
+    }
+
+    async function submitFilesToAPI(files, qcm, bool, dir) {
+        // UI Loading
+        uploadInitial.classList.add('hidden');
+        uploadLoading.classList.remove('hidden');
+
+        const formData = new FormData();
+        files.forEach(f => formData.append('images', f));
+        formData.append('qcm', qcm);
+        formData.append('boolean', bool);
+        formData.append('direct', dir);
+
+        try {
+            const response = await fetch('/api/generate', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            
+            if (!response.ok) throw new Error(data.error || 'Erreur inconnue');
+            
+            startQuiz(data);
+            loadArchives(); // Rafraîchit la sidebar
+
+        } catch (error) {
+            alert("Erreur lors de la génération : " + error.message);
+            resetToUpload();
+        }
+    }
+
+    async function loadArchives() {
+        try {
+            const response = await fetch('/api/archives');
+            const missions = await response.json();
+            
+            archivesList.innerHTML = '';
+            missions.forEach(mission => {
+                const div = document.createElement('div');
+                div.className = "flex items-center gap-3 p-3 bg-surface-container-lowest hover:bg-surface-container-low rounded-full shadow-sm border border-outline-variant/10 transition-colors group cursor-pointer fade-in";
+                
+                // Icone
+                const iconDiv = document.createElement('div');
+                iconDiv.className = "w-8 h-8 rounded-full bg-secondary-container/30 flex items-center justify-center text-secondary shrink-0";
+                iconDiv.innerHTML = `<span class="material-symbols-outlined text-lg">description</span>`;
+                
+                const textDiv = document.createElement('div');
+                textDiv.className = "flex-1 min-w-0 pointer-events-none";
+                const date = new Date(mission.created_at).toLocaleDateString('fr-FR');
+                textDiv.innerHTML = `
+                    <p class="text-[11px] font-bold text-indigo-900 truncate">${mission.title}</p>
+                    <p class="text-[9px] text-indigo-400 font-medium">${mission.topic} • ${date}</p>
+                `;
+
+                // Delete btn
+                const delBtn = document.createElement('button');
+                delBtn.className = "w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-indigo-300 hover:text-error hover:bg-error-container/20 transition-all opacity-0 group-hover:opacity-100";
+                delBtn.innerHTML = `<span class="material-symbols-outlined text-lg pointer-events-none">delete</span>`;
+                
+                delBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if(confirm("Supprimer cette archive ?")) {
+                        await fetch(`/api/archives/${mission.id}`, { method: 'DELETE' });
+                        loadArchives();
+                        if (currentQuiz && currentQuiz.id === mission.id) resetToUpload();
+                    }
+                });
+
+                div.appendChild(iconDiv);
+                div.appendChild(textDiv);
+                div.appendChild(delBtn);
+
+                div.addEventListener('click', () => loadMission(mission.id));
+                archivesList.appendChild(div);
+            });
+        } catch(e) {
+            console.error(e);
+        }
+    }
+
+    async function loadMission(id) {
+        try {
+            const resp = await fetch(`/api/archives/${id}`);
+            const data = await resp.json();
+            startQuiz(data);
+        } catch(e) {
+            console.error("Impossible de charger la mission", e);
+        }
+    }
+
+    // --- Logique du Moteur de Quiz ---
+    function startQuiz(quizData) {
+        currentQuiz = quizData;
+        currentQuestionIndex = 0;
+        score = 0;
+        questionResults = [];
+        
+        mainTitle.textContent = currentQuiz.title;
+        mainSubtitle.textContent = `Thème : ${currentQuiz.topic}`;
+        
+        uploadSection.classList.add('hidden');
+        quizSection.classList.add('hidden');
+        footerProgress.classList.add('hidden');
+        document.getElementById('quiz-end-screen').style.display = 'none';
+        document.getElementById('quiz-question-container').style.display = 'block';
+
+        // Afficher l'écran de résumé si l'IA a fourni un summary
+        const summaryData = currentQuiz.summary;
+        summaryList.innerHTML = '';
+        if (summaryData && Array.isArray(summaryData) && summaryData.length > 0) {
+            summaryData.forEach(point => {
+                const li = document.createElement('li');
+                li.className = 'flex items-start gap-3 text-indigo-800 font-semibold text-sm';
+                li.innerHTML = `
+                    <span class="mt-0.5 w-6 h-6 rounded-full bg-secondary/10 text-secondary flex items-center justify-center shrink-0">
+                        <span class="material-symbols-outlined text-base" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                    </span>
+                    <span>${point}</span>`;
+                summaryList.appendChild(li);
+            });
+            introSection.classList.remove('hidden');
+        } else {
+            // Pas de summary -> on passe directement au quiz
+            introSection.classList.add('hidden');
+            quizSection.classList.remove('hidden');
+            footerProgress.classList.remove('hidden');
+            renderQuestion();
+        }
+    }
+
+    function renderQuestion() {
+        const qData = currentQuiz.questions[currentQuestionIndex];
+        const total = currentQuiz.questions.length;
+        const type = qData.type || 'qcm';
+        
+        document.getElementById('q-counter').textContent = `QUESTION ${currentQuestionIndex + 1} SUR ${total}`;
+        const typeBadge = type === 'qcm' ? 'QCM' : (type === 'boolean' ? 'Vrai/Faux' : 'Saisie Directe');
+        document.getElementById('q-counter').textContent += ` - ${typeBadge}`;
+        
+        document.getElementById('q-text').textContent = qData.question;
+        
+        const optionsContainer = document.getElementById('q-options');
+        optionsContainer.innerHTML = '';
+        
+        const explanationBox = document.getElementById('q-explanation-box');
+        explanationBox.classList.add('hidden');
+        
+        // --- Rendu selon le type ---
+        if (type === 'qcm') {
+            optionsContainer.className = "grid gap-4"; // reset
+            const letters = ['A', 'B', 'C', 'D'];
+            
+            // Shuffle
+            if (!qData.shuffled && qData.options) {
+                const correctText = qData.options[qData.correct_answer];
+                let shuffledOptions = [...qData.options];
+                for (let i = shuffledOptions.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [shuffledOptions[i], shuffledOptions[j]] = [shuffledOptions[j], shuffledOptions[i]];
+                }
+                qData.options = shuffledOptions;
+                qData.correct_answer = shuffledOptions.indexOf(correctText);
+                qData.shuffled = true;
+            }
+
+            qData.options.forEach((optText, index) => {
+                const btn = document.createElement('button');
+                btn.className = "group option-btn flex items-center gap-4 p-5 bg-white rounded-full border-4 border-transparent hover:border-secondary hover:shadow-xl transition-all text-left w-full";
+                btn.innerHTML = `
+                    <div class="w-12 h-12 rounded-full bg-indigo-50 flex shrink-0 items-center justify-center text-xl font-black text-secondary group-hover:bg-secondary group-hover:text-white transition-colors letter-circle">${letters[index]}</div>
+                    <span class="text-lg font-bold text-indigo-800 flex-1">${optText}</span>
+                    <span class="material-symbols-outlined ml-auto result-icon hidden"></span>
+                `;
+                btn.addEventListener('click', () => handleOptionAnswer(index, btn, qData, 'qcm'));
+                optionsContainer.appendChild(btn);
+            });
+        } 
+        else if (type === 'boolean') {
+            optionsContainer.className = "grid grid-cols-2 gap-4";
+            ['Vrai', 'Faux'].forEach((optText, index) => {
+                const btn = document.createElement('button');
+                const color = index === 0 ? 'green' : 'tertiary'; // green or red
+                const iconStr = index === 0 ? 'check_circle' : 'cancel';
+                btn.className = `group option-btn flex flex-col items-center justify-center p-8 bg-white rounded-[2rem] border-4 border-transparent hover:border-${color} hover:shadow-xl transition-all`;
+                btn.innerHTML = `
+                    <span class="material-symbols-outlined text-5xl mb-2 text-indigo-200 group-hover:text-${color} transition-colors result-icon">${iconStr}</span>
+                    <span class="text-2xl font-black text-indigo-900">${optText}</span>
+                `;
+                btn.addEventListener('click', () => handleOptionAnswer(index, btn, qData, 'boolean'));
+                optionsContainer.appendChild(btn);
+            });
+        } 
+        else if (type === 'direct') {
+            optionsContainer.className = "flex flex-col gap-4";
+            optionsContainer.innerHTML = `
+                <div class="relative w-full">
+                    <input type="text" id="direct-input" class="w-full bg-white border-4 border-indigo-50 rounded-[2rem] p-6 text-xl font-bold text-indigo-900 focus:outline-none focus:border-secondary shadow-sm" placeholder="Écris ta réponse ici..." autocomplete="off">
+                    <span class="material-symbols-outlined absolute right-6 top-1/2 -translate-y-1/2 text-3xl hidden" id="direct-icon"></span>
+                </div>
+                <button id="direct-submit" class="mt-2 w-full py-5 bg-secondary text-white text-xl font-black rounded-full hover:scale-[1.02] shadow-xl hover:bg-secondary/90 transition-all">Valider la réponse</button>
+            `;
+            const submitBtn = document.getElementById('direct-submit');
+            const directInput = document.getElementById('direct-input');
+            submitBtn.addEventListener('click', () => handleDirectAnswer(directInput.value, qData));
+            directInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') handleDirectAnswer(directInput.value, qData);
+            });
+            setTimeout(() => directInput.focus(), 100);
+        }
+
+        updateProgress();
+    }
+
+    function handleOptionAnswer(selectedIndex, btnElem, qData, type) {
+        const allBtns = document.querySelectorAll('.option-btn');
+        allBtns.forEach(b => {
+             b.disabled = true;
+             b.classList.remove('hover:border-secondary', 'hover:border-green', 'hover:border-tertiary', 'hover:shadow-xl');
+             b.classList.add('opacity-50');
+             b.style.pointerEvents = 'none';
+        });
+        btnElem.classList.remove('opacity-50');
+
+        const isCorrect = selectedIndex === qData.correct_answer;
+        const icon = btnElem.querySelector('.result-icon');
+        
+        if (type === 'qcm') {
+            const letterCircle = btnElem.querySelector('.letter-circle');
+            icon.classList.remove('hidden');
+            if (isCorrect) {
+                score++;
+                btnElem.classList.add('bg-green-50', 'border-green-500', 'shadow-lg');
+                letterCircle.classList.replace('bg-indigo-50', 'bg-green-500');
+                letterCircle.classList.replace('text-secondary', 'text-white');
+                icon.classList.add('text-green-500');
+                icon.textContent = 'check_circle';
+            } else {
+                btnElem.classList.add('border-red-500', 'shake', 'bg-red-50');
+                letterCircle.classList.replace('bg-indigo-50', 'bg-red-500');
+                letterCircle.classList.replace('text-secondary', 'text-white');
+                icon.classList.add('text-red-500');
+                icon.textContent = 'cancel';
+                allBtns[qData.correct_answer].classList.remove('opacity-50');
+                allBtns[qData.correct_answer].classList.add('border-green-500', 'opacity-80');
+            }
+        } else if (type === 'boolean') {
+            if (isCorrect) {
+                score++;
+                btnElem.classList.add('border-green-500', 'bg-green-50');
+                icon.classList.add('text-green-500');
+            } else {
+                btnElem.classList.add('border-red-500', 'shake', 'bg-red-50');
+                icon.classList.add('text-red-500');
+                allBtns[qData.correct_answer].classList.remove('opacity-50');
+                allBtns[qData.correct_answer].classList.add('border-green-500', 'opacity-80', 'bg-green-50');
+            }
+        }
+
+        questionResults.push({ type: qData.type, question: qData.question, isCorrect });
+        showExplanationAndNext(qData, isCorrect);
+    }
+    
+    function handleDirectAnswer(userText, qData) {
+        const inputElem = document.getElementById('direct-input');
+        const submitBtn = document.getElementById('direct-submit');
+        const icon = document.getElementById('direct-icon');
+        
+        if (!userText.trim()) return; // require some input
+        
+        inputElem.disabled = true;
+        submitBtn.style.display = 'none';
+        icon.classList.remove('hidden');
+        
+        const expected = (qData.direct_answer || "").trim();
+        const user = userText.trim();
+        
+        // Normalisation intelligente : accents, casse, articles français
+        function normalize(str) {
+            return str
+                .toLowerCase()
+                // Supprimer les accents
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                // Supprimer les articles français en début de chaîne
+                .replace(/^(l'|le |la |les |un |une |des |du |de la |de l')/i, '')
+                .trim();
+        }
+
+        let isCorrect = false;
+        if (expected && user) {
+            const normExpected = normalize(expected);
+            const normUser = normalize(user);
+
+            // Correspondance exacte après normalisation
+            if (normUser === normExpected) {
+                isCorrect = true;
+            // L'un contient l'autre (ex: "l'échelle" vs "échelle des cartes")
+            } else if (normUser.includes(normExpected) || normExpected.includes(normUser)) {
+                isCorrect = true;
+            // Distance de Levenshtein ≤ 1 (tolérance d'1 faute de frappe)
+            } else {
+                const dist = levenshtein(normUser, normExpected);
+                if (dist <= 1) isCorrect = true;
+            }
+        }
+
+        if (isCorrect) {
+            score++;
+            inputElem.classList.replace('border-indigo-50', 'border-green-500');
+            inputElem.classList.add('bg-green-50', 'text-green-600');
+            icon.classList.add('text-green-600');
+            icon.textContent = 'check_circle';
+        } else {
+            inputElem.classList.replace('border-indigo-50', 'border-red-500');
+            inputElem.classList.add('bg-red-50', 'text-red-600', 'shake');
+            icon.classList.add('text-red-600');
+            icon.textContent = 'cancel';
+            
+            // Montrer la réponse attendue à l'enfant sous le champ
+            const correction = document.createElement('p');
+            correction.className = "text-error font-bold mt-2 ml-4 fade-in";
+            correction.textContent = `La réponse attendue était : ${qData.direct_answer}`;
+            inputElem.parentNode.appendChild(correction);
+        }
+        questionResults.push({ type: qData.type, question: qData.question, isCorrect });
+        showExplanationAndNext(qData, isCorrect);
+    }
+
+    function showExplanationAndNext(qData, isCorrect) {
+        updateProgress();
+
+        // Header dynamique selon le résultat
+        const explanationBox = document.getElementById('q-explanation-box');
+        const explanationHeader = explanationBox.querySelector('.explanation-header');
+        if (isCorrect) {
+            explanationHeader.textContent = '✅ Bravo ! Voici pourquoi :';
+            explanationBox.classList.remove('bg-red-50', 'border-red-200');
+            explanationBox.classList.add('bg-tertiary-container/30', 'border-tertiary-container/50');
+            explanationHeader.className = 'explanation-header font-black text-green-700 mb-2 text-sm';
+        } else {
+            explanationHeader.textContent = '❌ Dommage ! Voici la bonne réponse :';
+            explanationBox.classList.remove('bg-tertiary-container/30', 'border-tertiary-container/50');
+            explanationBox.classList.add('bg-red-50', 'border-red-200');
+            explanationHeader.className = 'explanation-header font-black text-red-600 mb-2 text-sm';
+        }
+
+        // Explication générée par l'IA (en supprimant tout "Bravo" pré-existant)
+        const rawExplanation = qData.explanation || '';
+        const cleanedExplanation = rawExplanation.replace(/^(bravo\s*[!.]*\s*)/i, '');
+        document.getElementById('q-explanation-text').textContent = cleanedExplanation;
+        explanationBox.classList.remove('hidden');
+        explanationBox.classList.add('fade-in');
+        
+        const nextBtn = document.getElementById('next-q-btn');
+        nextBtn.onclick = () => {
+            if (currentQuestionIndex < currentQuiz.questions.length - 1) {
+                currentQuestionIndex++;
+                renderQuestion();
+            } else {
+                showEndScreen();
+            }
+        };
+    }
+
+    function updateProgress() {
+        if (!currentQuiz) return;
+        const total = currentQuiz.questions.length;
+        const percent = Math.round((currentQuestionIndex / total) * 100);
+        
+        document.getElementById('progress-text').textContent = `${percent}%`;
+        document.getElementById('progress-bar-fill').style.width = `${percent}%`;
+        document.getElementById('score-text').textContent = `Score: ${score}/${total}`;
+    }
+
+    function showEndScreen() {
+        document.getElementById('quiz-question-container').style.display = 'none';
+        
+        const endScreen = document.getElementById('quiz-end-screen');
+        endScreen.style.display = 'block';
+        endScreen.classList.add('fade-in');
+        
+        const total = currentQuiz.questions.length;
+        document.getElementById('final-score-text').textContent = `Score final : ${score} / ${total}`;
+        document.getElementById('progress-bar-fill').style.width = `100%`;
+        document.getElementById('progress-text').textContent = `100% ✅`;
+
+        // -- Bouton Stats : toggle affichage --
+        const statsBtn = document.getElementById('stats-btn');
+        const statsPanel = document.getElementById('stats-panel');
+        statsPanel.classList.add('hidden');
+
+        statsBtn.onclick = () => {
+            const isHidden = statsPanel.classList.contains('hidden');
+            if (isHidden) {
+                renderStats();
+                statsPanel.classList.remove('hidden');
+                statsPanel.classList.add('fade-in');
+                statsBtn.innerHTML = `<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">close</span><span>Masquer les stats</span>`;
+            } else {
+                statsPanel.classList.add('hidden');
+                statsBtn.innerHTML = `<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">analytics</span><span>Statistiques de ta performance</span>`;
+            }
+        };
+    }
+
+    function renderStats() {
+        const total = questionResults.length;
+        const pct = total > 0 ? Math.round((score / total) * 100) : 0;
+
+        // --- Cercle score ---
+        const circle = document.getElementById('score-circle');
+        circle.textContent = `${pct}%`;
+        circle.className = `w-16 h-16 rounded-full flex items-center justify-center font-black text-xl text-white shrink-0 ${pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-yellow-400' : 'bg-red-400'}`;
+        document.getElementById('score-summary-line').textContent = `${score} bonne${score > 1 ? 's' : ''} réponse${score > 1 ? 's' : ''} sur ${total}`;
+        const msgs = pct >= 80 ? '🌟 Super boulot ! Continue comme ça !' : pct >= 50 ? '💪 Bon début, encore un peu d’effort !' : '📚 Pas de souci, révise le cours et réessaie !';
+        document.getElementById('score-message').textContent = msgs;
+
+        // --- Stats par type ---
+        const types = { qcm: { label: 'QCM', icon: '📝', ok: 0, total: 0 }, boolean: { label: 'Vrai / Faux', icon: '⚖️', ok: 0, total: 0 }, direct: { label: 'Saisie Libre', icon: '✏️', ok: 0, total: 0 } };
+        questionResults.forEach(r => {
+            if (types[r.type]) {
+                types[r.type].total++;
+                if (r.isCorrect) types[r.type].ok++;
+            }
+        });
+        const byType = document.getElementById('stats-by-type');
+        byType.innerHTML = '';
+        Object.values(types).forEach(t => {
+            if (t.total === 0) return;
+            const tPct = Math.round((t.ok / t.total) * 100);
+            const barColor = tPct >= 80 ? 'bg-green-500' : tPct >= 50 ? 'bg-yellow-400' : 'bg-red-400';
+            const row = document.createElement('div');
+            row.innerHTML = `
+                <div class="flex items-center justify-between mb-1">
+                    <span class="text-xs font-bold text-indigo-700">${t.icon} ${t.label}</span>
+                    <span class="text-xs font-black text-indigo-900">${t.ok}/${t.total}</span>
+                </div>
+                <div class="h-2 bg-indigo-100 rounded-full overflow-hidden">
+                    <div class="h-full ${barColor} rounded-full transition-all duration-700" style="width:${tPct}%"></div>
+                </div>`;
+            byType.appendChild(row);
+        });
+
+        // --- Questions ratées ---
+        const missed = questionResults.filter(r => !r.isCorrect);
+        const missedSection = document.getElementById('missed-section');
+        const missedList = document.getElementById('missed-list');
+        missedList.innerHTML = '';
+        if (missed.length === 0) {
+            missedSection.classList.add('hidden');
+        } else {
+            missedSection.classList.remove('hidden');
+            missed.forEach(r => {
+                const li = document.createElement('li');
+                li.className = 'flex items-start gap-2 text-xs font-semibold text-red-700';
+                li.innerHTML = `<span class="shrink-0 mt-0.5">❌</span><span>${r.question}</span>`;
+                missedList.appendChild(li);
+            });
+        }
+    }
+
+    function resetToUpload() {
+        currentQuiz = null;
+        questionResults = [];
+        uploadInitial.classList.remove('hidden');
+        uploadLoading.classList.add('hidden');
+        fileInput.value = "";
+
+        // Réinitialiser le titre d'accueil
+        mainTitle.textContent = 'Salut Timéo, Lise ou Léonie ! 👋';
+        mainSubtitle.textContent = 'Ta prochaine aventure commence ici.';
+
+        uploadSection.classList.remove('hidden');
+        introSection.classList.add('hidden');
+        quizSection.classList.add('hidden');
+        footerProgress.classList.add('hidden');
+    }
+});
