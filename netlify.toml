@@ -6,6 +6,7 @@
   included_files = [
     "templates/**",
     "static/**",
+    "app.py",
     "ai_engine.py",
     "storage.py",
     ".env"
