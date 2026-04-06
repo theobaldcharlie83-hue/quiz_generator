@@ -1,18 +1,17 @@
 [build]
   command = "pip install -r requirements.txt"
-  functions = "netlify/functions"
+  functions = "functions"
   publish = "."
 
 [functions]
   included_files = [
     "app.py",
     "ai_engine.py",
-    "storage.py"
+    "storage.py",
+    "templates/**"
   ]
 
-# Pas de redirection globale /* pour éviter les 404 sur les fichiers statiques.
-# Netlify servira index.html et le dossier static/ tout seul.
-
+# Redirection de l'API vers la fonction
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/api"
