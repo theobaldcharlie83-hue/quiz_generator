@@ -1,5 +1,3 @@
-flask
 google-generativeai
 python-dotenv
-gunicorn
-serverless-wsgi
+typing_extensions

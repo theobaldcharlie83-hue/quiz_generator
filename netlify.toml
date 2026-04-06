@@ -1,14 +1,11 @@
 [build]
-  command = "pip install -r requirements.txt"
+  command = "echo 'Build OK'"
   functions = "functions"
   publish = "public"
 
 [functions]
   included_files = [
-    "app.py",
-    "ai_engine.py",
-    "storage.py",
-    "templates/**"
+    "ai_engine.py"
   ]
 
 # Redirection de l'API vers la fonction
