@@ -25,6 +25,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const quizSection = document.getElementById('quiz-section');
     const footerProgress = document.getElementById('footer-progress');
     
+    console.log('[DEBUG] Initialisation des éléments DOM...');
+    console.log('[DEBUG] dropZone:', !!dropZone, 'fileInput:', !!fileInput, 'browseBtn:', !!browseBtn);
+    
     const btnHome = document.getElementById('btn-home');
 
     // --- Logique de Heartbeat (Désactivée sur Netlify, Active en local) ---
@@ -94,8 +97,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.slider-config').forEach(sl => sl.addEventListener('input', updateTotal));
     btnHome.addEventListener('click', resetToUpload);
     
-    browseBtn.addEventListener('click', () => fileInput.click());
+    browseBtn.addEventListener('click', (e) => {
+        console.log('[DEBUG] Clic sur browseBtn');
+        fileInput.click();
+    });
     
+    console.log('[DEBUG] Ecouteurs d\'événements attachés.');
 
 
     // Modal UI listeners

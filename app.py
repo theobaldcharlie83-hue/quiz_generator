@@ -13,10 +13,10 @@ load_dotenv()
 
 # Pas de Heartbeat en production Cloud
 
-# Définition des chemins absolus pour Flask (essentiel pour Netlify/Serverless)
+# Définition des chemins vers le dossier 'public' (commun avec Netlify)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
-STATIC_DIR = os.path.join(BASE_DIR, "static")
+TEMPLATE_DIR = os.path.join(BASE_DIR, "public")
+STATIC_DIR = os.path.join(BASE_DIR, "public", "static")
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "storage_temp")
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)

@@ -1,20 +1,14 @@
 [build]
   command = "echo 'Build OK'"
   publish = "public"
+  functions = "netlify/functions"
 
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
 # Redirection de l'API vers la fonction
-# La syntaxe /api/* -> /.netlify/functions/:splat est souvent plus robuste
 [[redirects]]
   from = "/api/*"
-  to = "/.netlify/functions/api"
-  status = 200
-
-# Redirection pour le heartbeat (optionnel mais propre)
-[[redirects]]
-  from = "/api/heartbeat"
   to = "/.netlify/functions/api"
   status = 200
