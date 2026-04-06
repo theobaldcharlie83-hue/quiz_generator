@@ -27,10 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const btnHome = document.getElementById('btn-home');
 
-    // Ping régulier du Heartbeat pour maintenir le serveur en vie
-    setInterval(() => {
-        fetch('/api/heartbeat', { method: 'POST' }).catch(() => {});
-    }, 2000);
+    // Logique de Heartbeat supprimée pour le déploiement Cloud (inutile)
 
     // Sliders de Paramétrage Adulte
     const numQcmInput = document.getElementById('num-qcm-input');
@@ -212,8 +209,9 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (!response.ok) throw new Error(data.error || 'Erreur inconnue');
             
+            saveToLocalStorage(data);
             startQuiz(data);
-            loadArchives(); // Rafraîchit la sidebar
+            loadArchives(); // Rafraîchit la barre latérale sous forme locale
 
         } catch (error) {
             alert("Erreur lors de la génération : " + error.message);
@@ -221,13 +219,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function loadArchives() {
+    // --- Gestion des archives via LocalStorage (Cloud-ready) ---
+    function saveToLocalStorage(missionData) {
+        const archives = JSON.parse(localStorage.getItem('quiz_archives') || '[]');
+        // On évite les doublons par ID
+        const index = archives.findIndex(a => a.id === missionData.id);
+        if (index !== -1) {
+            archives[index] = missionData;
+        } else {
+            archives.unshift(missionData);
+        }
+        localStorage.setItem('quiz_archives', JSON.stringify(archives));
+    }
+
+    function loadArchives() {
         try {
-            const response = await fetch('/api/archives');
-            const missions = await response.json();
-            
+            const archives = JSON.parse(localStorage.getItem('quiz_archives') || '[]');
             archivesList.innerHTML = '';
-            missions.forEach(mission => {
+            
+            archives.forEach(mission => {
                 const div = document.createElement('div');
                 div.className = "flex items-center gap-3 p-3 bg-surface-container-lowest hover:bg-surface-container-low rounded-full shadow-sm border border-outline-variant/10 transition-colors group cursor-pointer fade-in";
                 
@@ -238,21 +248,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const textDiv = document.createElement('div');
                 textDiv.className = "flex-1 min-w-0 pointer-events-none";
-                const date = new Date(mission.created_at).toLocaleDateString('fr-FR');
+                const date = mission.created_at ? new Date(mission.created_at).toLocaleDateString('fr-FR') : 'Date inconnue';
                 textDiv.innerHTML = `
                     <p class="text-[11px] font-bold text-indigo-900 truncate">${mission.title}</p>
                     <p class="text-[9px] text-indigo-400 font-medium">${mission.topic} • ${date}</p>
                 `;
 
-                // Delete btn
+                // Bouton supprimer
                 const delBtn = document.createElement('button');
                 delBtn.className = "w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-indigo-300 hover:text-error hover:bg-error-container/20 transition-all opacity-0 group-hover:opacity-100";
                 delBtn.innerHTML = `<span class="material-symbols-outlined text-lg pointer-events-none">delete</span>`;
                 
-                delBtn.addEventListener('click', async (e) => {
+                delBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    if(confirm("Supprimer cette archive ?")) {
-                        await fetch(`/api/archives/${mission.id}`, { method: 'DELETE' });
+                    if(confirm("Supprimer cette archive de votre navigateur ?")) {
+                        removeFromLocalStorage(mission.id);
                         loadArchives();
                         if (currentQuiz && currentQuiz.id === mission.id) resetToUpload();
                     }
@@ -266,15 +276,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 archivesList.appendChild(div);
             });
         } catch(e) {
-            console.error(e);
+            console.error("Erreur chargement archives", e);
         }
     }
 
-    async function loadMission(id) {
+    function removeFromLocalStorage(id) {
+        let archives = JSON.parse(localStorage.getItem('quiz_archives') || '[]');
+        archives = archives.filter(a => a.id !== id);
+        localStorage.setItem('quiz_archives', JSON.stringify(archives));
+    }
+
+    function loadMission(id) {
         try {
-            const resp = await fetch(`/api/archives/${id}`);
-            const data = await resp.json();
-            startQuiz(data);
+            const archives = JSON.parse(localStorage.getItem('quiz_archives') || '[]');
+            const mission = archives.find(a => a.id === id);
+            if (mission) {
+                startQuiz(mission);
+            } else {
+                alert("Mission non trouvée dans votre navigateur.");
+            }
         } catch(e) {
             console.error("Impossible de charger la mission", e);
         }
