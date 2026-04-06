@@ -3,11 +3,6 @@
   functions = "functions"
   publish = "public"
 
-[functions]
-  included_files = [
-    "ai_engine.py"
-  ]
-
 # Redirection de l'API vers la fonction
 [[redirects]]
   from = "/api/*"

@@ -6,10 +6,7 @@ import base64
 import tempfile
 from datetime import datetime
 
-# Ajout de la racine du projet dans le path pour trouver ai_engine.py
-# functions/ est un dossier enfant de la racine, donc on remonte d'un niveau
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT_DIR)
+# ai_engine.py est maintenant dans le même dossier (functions/), import direct
 
 def handler(event, context):
     """Handler autonome pour Netlify. Gère POST /api/generate."""
