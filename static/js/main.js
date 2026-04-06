@@ -27,7 +27,19 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const btnHome = document.getElementById('btn-home');
 
-    // Logique de Heartbeat supprimée pour le déploiement Cloud (inutile)
+    // --- Logique de Heartbeat (Désactivée sur Netlify, Active en local) ---
+    function startHeartbeat() {
+        // Ping toutes les 2.5 secondes
+        setInterval(() => {
+            fetch('/api/heartbeat', { method: 'POST' })
+                .catch(err => console.debug("Heartbeat failed (expected on cloud or during closing):", err));
+        }, 2500);
+    }
+    
+    // On ne lance le heartbeat que sur localhost
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        startHeartbeat();
+    }
 
     // Sliders de Paramétrage Adulte
     const numQcmInput = document.getElementById('num-qcm-input');

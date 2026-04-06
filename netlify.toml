@@ -2,12 +2,16 @@
   command = "pip install -r requirements.txt"
   functions = "netlify/functions"
 
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api/:splat"
-  status = 200
+[functions]
+  included_files = [
+    "templates/**",
+    "static/**",
+    "ai_engine.py",
+    "storage.py",
+    ".env"
+  ]
 
 [[redirects]]
   from = "/*"
-  to = "/index.html"
+  to = "/.netlify/functions/api"
   status = 200

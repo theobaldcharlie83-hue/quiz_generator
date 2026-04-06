@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+import threading
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
@@ -12,12 +13,34 @@ load_dotenv()
 
 # Pas de Heartbeat en production Cloud
 
-app = Flask(__name__)
+# Définition des chemins absolus pour Flask (essentiel pour Netlify/Serverless)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "storage_temp")
+
+app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 # Configurations
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 # 16 MB max
-UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "storage_temp")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# --- Logique d'Auto-Extinction (Local uniquement) ---
+last_heartbeat = time.time()
+
+@app.route('/api/heartbeat', methods=['POST'])
+def heartbeat():
+    global last_heartbeat
+    last_heartbeat = time.time()
+    return jsonify({"status": "ok"})
+
+def monitor_heartbeat():
+    """Vérifie si le navigateur est toujours ouvert. Se coupe après 10s d'inactivité."""
+    while True:
+        time.sleep(5)
+        if time.time() - last_heartbeat > 10:
+            print("[INFO] Inactivité détectée (navigateur fermé). Fermeture du serveur...")
+            os._exit(0)
 
 @app.route('/')
 def index():
@@ -78,6 +101,12 @@ def generate():
 
 if __name__ == '__main__':
     # Mode dev local
-    port = int(os.environ.get("PORT", 8989))
+    port = int(os.environ.get("PORT", 5000))
     print(f"Démarrage sur le port {port}")
+    import webbrowser
+    webbrowser.open(f"http://localhost:{port}")
+    
+    # Lancement du moniteur d'inactivité en tâche de fond
+    threading.Thread(target=monitor_heartbeat, daemon=True).start()
+    
     app.run(host='0.0.0.0', port=port)

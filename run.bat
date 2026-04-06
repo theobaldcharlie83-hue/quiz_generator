@@ -39,7 +39,7 @@ if not exist ".env" (
     pause
 )
 
-:: Lancement en tâche de fond (Headless)
-echo [INFO] Lancement de l'application en arriere-plan...
-start "" /B pythonw.exe app.py
+:: Lancement de l'application en arrière-plan (mode discret)
+echo [INFO] Démarrage de votre Aventure du Savoir...
+start "" /B venv\Scripts\pythonw.exe app.py
 exit
