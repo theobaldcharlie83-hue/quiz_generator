@@ -56,9 +56,9 @@ def generate():
     if not files:
         return jsonify({"error": "Aucune image sélectionnée."}), 400
         
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key or api_key == "your_api_key_here":
-        return jsonify({"error": "La clé Google AI Studio (GEMINI_API_KEY) n'est pas configurée dans le fichier .env"}), 400
+        return jsonify({"error": "La clé OpenRouter (OPENROUTER_API_KEY) n'est pas configurée dans le fichier .env"}), 400
 
     try:
         num_qcm = int(request.form.get('qcm', '4'))

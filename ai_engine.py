@@ -1,6 +1,7 @@
 import os
 import json
-import google.generativeai as genai
+import base64
+import requests
 from typing_extensions import TypedDict
 import logging
 
@@ -8,7 +9,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Définition du schéma JSON attendu (Structured Output Gemini)
+# Définition du schéma JSON attendu (Structured Output)
 class Question(TypedDict):
     question: str
     options: list[str]
@@ -22,30 +23,33 @@ class QuizReport(TypedDict):
 
 def generate_quiz_from_image(image_paths: list, api_key: str, num_qcm: int = 4, num_boolean: int = 3, num_direct: int = 3) -> dict:
     """
-    Exécute l'OCR sur une ou plusieurs images via Gemini et génère un quiz JSON structuré.
+    Exécute l'OCR sur une ou plusieurs images via OpenRouter et génère un quiz JSON structuré.
     """
-    logger.info(f"Configuration de l'API Gemini avec la clé fournie.")
-    genai.configure(api_key=api_key)
+    logger.info(f"Configuration de l'API OpenRouter avec la clé fournie.")
 
-    # Upload de TOUS les fichiers vers Gemini
-    uploaded_files = []
+    messages = [
+        {
+            "role": "user",
+            "content": []
+        }
+    ]
+
     for path in image_paths:
-        logger.info(f"Upload du fichier {path} vers Gemini...")
-        uploaded_files.append(genai.upload_file(path))
+        logger.info(f"Encodage du fichier {path} en base64...")
+        with open(path, "rb") as image_file:
+            base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+            messages[0]["content"].append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{base64_image}"
+                }
+            })
 
     total_questions = num_qcm + num_boolean + num_direct
     nb_images = len(image_paths)
     multi_note = f"IMPORTANT : Tu analyses {nb_images} image(s) de cours simultanément. Tu DOIS couvrir l'ensemble des contenus présents dans TOUTES les images.\n" if nb_images > 1 else ""
 
     try:
-        model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash",
-            generation_config={
-                "response_mime_type": "application/json",
-                "temperature": 0.4
-            }
-        )
-
         prompt = f"""
 Tu es un concepteur pédagogique expert.
 Ta mission est de LIRE, COMPRENDRE et ANALYSER le contenu du cours présent sur {'les images' if nb_images > 1 else "l'image"}, puis de créer un quiz interactif original.
@@ -79,12 +83,46 @@ Renvoie EXCLUSIVEMENT un JSON valide respectant ce format précis :
 }}
         """
 
-        logger.info("Envoi de la demande de génération de contenu...")
-        # Passer toutes les images + le prompt dans un seul appel
-        response = model.generate_content([*uploaded_files, prompt])
-        
+        messages[0]["content"].append({
+            "type": "text",
+            "text": prompt
+        })
+
+        import time
+        max_retries = 4
+        for attempt in range(max_retries):
+            logger.info(f"Envoi de la demande de génération via OpenRouter (Tentative {attempt + 1}/{max_retries})...")
+            response = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                data=json.dumps({
+                    "model": "google/gemma-4-26b-a4b-it:free",
+                    "messages": messages,
+                    "temperature": 0.4
+                })
+            )
+            
+            if response.status_code == 429:
+                if attempt < max_retries - 1:
+                    sleep_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s...
+                    logger.warning(f"Erreur 429 (Trop de requêtes). Nouvelle tentative dans {sleep_time} secondes...")
+                    time.sleep(sleep_time)
+                    continue
+            
+            # Pour toute autre erreur ou succès, on sort la boucle et on raise si besoin
+            response.raise_for_status()
+            break
+            
+        response_json = response.json()
+
         logger.info("Réponse reçue. Nettoyage et Parsing du JSON.")
-        raw_text = response.text.strip()
+        if "choices" not in response_json or not response_json["choices"]:
+            raise ValueError(f"Réponse inattendue de l'API OpenRouter : {response_json}")
+
+        raw_text = response_json["choices"][0]["message"]["content"].strip()
         
         if raw_text.startswith("```json"):
             raw_text = raw_text[7:]
@@ -99,19 +137,9 @@ Renvoie EXCLUSIVEMENT un JSON valide respectant ce format précis :
             return json.loads(raw_text)
         except json.JSONDecodeError as e:
             logger.error(f"Echec JSON. Début du texte généré : {raw_text[:200]}")
-            raise ValueError(f"Le texte reçu de Gemini est corrompu ou incomplet. {str(e)}")
+            raise ValueError(f"Le texte reçu d'OpenRouter est corrompu ou incomplet. {str(e)}")
 
         
     except Exception as e:
-        logger.error(f"Erreur durant la génération Gemini : {e}")
+        logger.error(f"Erreur durant la génération OpenRouter : {e}")
         raise e
-        
-    finally:
-        # Nettoyage systématique de TOUS les fichiers uploadés
-        logger.info("Nettoyage des fichiers temporaires Gemini...")
-        for uf in uploaded_files:
-            try:
-                genai.delete_file(uf.name)
-            except Exception as cleanup_err:
-                logger.warning(f"Impossible de supprimer le fichier {uf.name} : {cleanup_err}")
-
