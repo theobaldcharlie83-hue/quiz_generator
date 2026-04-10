@@ -141,7 +141,11 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         dropZone.classList.remove('border-primary', 'bg-secondary-container/10');
         if (e.dataTransfer.files.length > 0) {
-            processFiles(Array.from(e.dataTransfer.files));
+            // On assigne les fichiers dropés à l'input file pour conserver leurs handles actifs
+            // dans la mémoire du navigateur, sinon Chromium détruit la référence une fois l'événement terminé
+            // ce qui cause l'erreur "Failed to fetch" lors du clic sur Confirmer.
+            fileInput.files = e.dataTransfer.files;
+            processFiles(Array.from(fileInput.files));
         }
     });
 
