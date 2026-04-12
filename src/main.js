@@ -35,12 +35,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveApiKeyBtn = document.getElementById('save-api-key-btn');
     const apiKeyStatus = document.getElementById('api-key-status');
 
-    if (localStorage.getItem('openrouter_api_key')) {
-        apiKeyInput.value = localStorage.getItem('openrouter_api_key');
+    if (localStorage.getItem('gemini_api_key')) {
+        apiKeyInput.value = localStorage.getItem('gemini_api_key');
     }
 
     saveApiKeyBtn.addEventListener('click', () => {
-        localStorage.setItem('openrouter_api_key', apiKeyInput.value);
+        localStorage.setItem('gemini_api_key', apiKeyInput.value);
         apiKeyStatus.classList.remove('hidden');
         apiKeyStatus.classList.add('flex');
         setTimeout(() => {
@@ -227,9 +227,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function submitFilesToAPI(files, qcm, bool, dir) {
-        const apiKey = localStorage.getItem('openrouter_api_key');
+        const apiKey = localStorage.getItem('gemini_api_key');
         if (!apiKey) {
-            alert("Attention : La clé API OpenRouter n'est pas configurée dans les réglages.");
+            alert("Attention : La clé API Gemini n'est pas configurée dans les réglages.");
             resetToUpload();
             return;
         }
@@ -273,30 +273,40 @@ Renvoie EXCLUSIVEMENT un JSON valide respectant ce format précis :
   ]
 }`;
 
-            const messages = [{ role: "user", content: [] }];
+            const geminiParts = [];
             for (const file of files) {
                 const base64String = await fileToBase64(file);
-                messages[0].content.push({ type: "image_url", image_url: { url: base64String } });
+                const base64Data = base64String.split(',')[1];
+                const mimeType = file.type || "image/jpeg";
+                geminiParts.push({
+                    inline_data: {
+                        mime_type: mimeType,
+                        data: base64Data
+                    }
+                });
             }
-            messages[0].content.push({ type: "text", text: prompt });
+            geminiParts.push({ text: prompt });
 
-            const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            const requestBody = {
+                contents: [{ parts: geminiParts }],
+                generationConfig: {
+                    temperature: 0.4,
+                    responseMimeType: "application/json"
+                }
+            };
+
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
                 method: 'POST',
                 headers: {
-                    "Authorization": `Bearer ${apiKey}`,
                     "Content-Type": "application/json"
                 },
-                body: JSON.stringify({
-                    model: "google/gemini-2.5-flash",
-                    messages: messages,
-                    temperature: 0.4
-                })
+                body: JSON.stringify(requestBody)
             });
 
             const dataResponse = await response.json();
-            if (!response.ok) throw new Error(dataResponse.error?.message || 'Erreur API OpenRouter');
+            if (!response.ok) throw new Error(dataResponse.error?.message || 'Erreur API Gemini');
 
-            let rawText = dataResponse.choices[0].message.content.trim();
+            let rawText = dataResponse.candidates[0].content.parts[0].text.trim();
             if (rawText.startsWith("```json")) rawText = rawText.substring(7);
             else if (rawText.startsWith("```")) rawText = rawText.substring(3);
             if (rawText.endsWith("```")) rawText = rawText.substring(0, rawText.length - 3);
