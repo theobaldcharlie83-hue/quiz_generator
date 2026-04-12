@@ -30,19 +30,24 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const btnHome = document.getElementById('btn-home');
 
-    // --- Logique de Heartbeat (Désactivée sur Netlify, Active en local) ---
-    function startHeartbeat() {
-        // Ping toutes les 2.5 secondes
-        setInterval(() => {
-            fetch('/api/heartbeat', { method: 'POST' })
-                .catch(err => console.debug("Heartbeat failed (expected on cloud or during closing):", err));
-        }, 2500);
+    // --- Paramétrage de la clé API ---
+    const apiKeyInput = document.getElementById('api-key-input');
+    const saveApiKeyBtn = document.getElementById('save-api-key-btn');
+    const apiKeyStatus = document.getElementById('api-key-status');
+
+    if (localStorage.getItem('openrouter_api_key')) {
+        apiKeyInput.value = localStorage.getItem('openrouter_api_key');
     }
-    
-    // On ne lance le heartbeat que sur localhost
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        startHeartbeat();
-    }
+
+    saveApiKeyBtn.addEventListener('click', () => {
+        localStorage.setItem('openrouter_api_key', apiKeyInput.value);
+        apiKeyStatus.classList.remove('hidden');
+        apiKeyStatus.classList.add('flex');
+        setTimeout(() => {
+            apiKeyStatus.classList.add('hidden');
+            apiKeyStatus.classList.remove('flex');
+        }, 2000);
+    });
 
     // Sliders de Paramétrage Adulte
     const numQcmInput = document.getElementById('num-qcm-input');
@@ -212,29 +217,98 @@ document.addEventListener('DOMContentLoaded', () => {
         confirmModalCard.classList.replace('scale-95', 'scale-100');
     }
 
+    function fileToBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = error => reject(error);
+        });
+    }
+
     async function submitFilesToAPI(files, qcm, bool, dir) {
+        const apiKey = localStorage.getItem('openrouter_api_key');
+        if (!apiKey) {
+            alert("Attention : La clé API OpenRouter n'est pas configurée dans les réglages.");
+            resetToUpload();
+            return;
+        }
+
         // UI Loading
         uploadInitial.classList.add('hidden');
         uploadLoading.classList.remove('hidden');
 
-        const formData = new FormData();
-        files.forEach(f => formData.append('images', f));
-        formData.append('qcm', qcm);
-        formData.append('boolean', bool);
-        formData.append('direct', dir);
-
         try {
-            const response = await fetch('/api/generate', {
+            const total_questions = parseInt(qcm) + parseInt(bool) + parseInt(dir);
+            const nb_images = files.length;
+            const multi_note = nb_images > 1 ? `IMPORTANT : Tu analyses ${nb_images} image(s) de cours simultanément. Tu DOIS couvrir l'ensemble des contenus présents dans TOUTES les images.\n` : "";
+
+            const prompt = `Tu es un concepteur pédagogique expert.
+Ta mission est de LIRE, COMPRENDRE et ANALYSER le contenu du cours présent sur ${nb_images > 1 ? 'les images' : "l'image"}, puis de créer un quiz interactif original.
+${multi_note}
+RÈGLES ABSOLUES À RESPECTER :
+1. NOMBRES ET TYPES DE QUESTIONS : Tu dois générer EXACTEMENT ${total_questions} questions au total. Si le cours est court, invente tes propres problèmes d'approfondissement. Tu DOIS IMPERATIVEMENT respecter les quantités et formats suivants :
+    - ${qcm} questions de type "qcm". 4 propositions distinctes dans \`options\` (index correct: 0-3 dans \`correct_answer\`).
+    - ${bool} questions de type "boolean". Une affirmation testée en Vrai/Faux. \`options\` DOIT être exactement \`["Vrai", "Faux"]\`. \`correct_answer\` sera 0 (Vrai) ou 1 (Faux).
+    - ${dir} questions de type "direct". L'enfant devra écrire sa réponse. \`options\` doit être \`null\`, \`correct_answer\` = null. La réponse brute attendue sera dans \`direct_answer\` (écrite en minuscules, maximum 1 ou 2 mots, ex: "mathématiques", "12").
+2. FOND, PAS LA FORME : Il est STRICTEMENT INTERDIT de poser des questions descriptives sur l'image elle-même.
+3. GÉNÉRALISATION OBLIGATOIRE (CRITIQUE) : NE RÉUTILISE PAS les exemples précis montrés dans le cours (l'enfant n'aura pas le cours sous les yeux !). Tes questions DOIVENT être de nouveaux exercices abstraits parfaits créés par toi-même sur le même concept.
+4. EXPLICATION : Fournis toujours une \`explanation\` douce et encourageante.
+
+FORMAT DE SORTIE OBLIGATOIRE (JSON STRICT) :
+Renvoie EXCLUSIVEMENT un JSON valide respectant ce format précis :
+{
+  "title": "Titre captivant",
+  "topic": "Sujet exact (1/2 mots)",
+  "summary": ["Point clé 1 du cours (phrase courte)", "Point clé 2 du cours", "Point clé 3 du cours"],
+  "questions": [
+    {
+      "type": "qcm", 
+      "question": "Texte de la question 1",
+      "options": ["Choix A", "Choix B", "Choix C", "Choix D"], 
+      "correct_answer": 0, 
+      "direct_answer": null, 
+      "explanation": "L'explication..."
+    }
+  ]
+}`;
+
+            const messages = [{ role: "user", content: [] }];
+            for (const file of files) {
+                const base64String = await fileToBase64(file);
+                messages[0].content.push({ type: "image_url", image_url: { url: base64String } });
+            }
+            messages[0].content.push({ type: "text", text: prompt });
+
+            const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: 'POST',
-                body: formData
+                headers: {
+                    "Authorization": `Bearer ${apiKey}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: "google/gemini-2.5-flash",
+                    messages: messages,
+                    temperature: 0.4
+                })
             });
-            const data = await response.json();
+
+            const dataResponse = await response.json();
+            if (!response.ok) throw new Error(dataResponse.error?.message || 'Erreur API OpenRouter');
+
+            let rawText = dataResponse.choices[0].message.content.trim();
+            if (rawText.startsWith("```json")) rawText = rawText.substring(7);
+            else if (rawText.startsWith("```")) rawText = rawText.substring(3);
+            if (rawText.endsWith("```")) rawText = rawText.substring(0, rawText.length - 3);
+            rawText = rawText.trim();
             
-            if (!response.ok) throw new Error(data.error || 'Erreur inconnue');
+            const data = JSON.parse(rawText);
+            data.id = crypto.randomUUID();
+            data.created_at = new Date().toISOString();
             
             saveToLocalStorage(data);
             startQuiz(data);
-            loadArchives(); // Rafraîchit la barre latérale sous forme locale
+            loadArchives();
 
         } catch (error) {
             alert("Erreur lors de la génération : " + error.message);

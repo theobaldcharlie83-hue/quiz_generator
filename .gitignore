@@ -24,3 +24,7 @@ desktop.ini
 
 # === Logs ===
 *.log
+
+# === Vite ===
+dist/
+node_modules/
