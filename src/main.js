@@ -324,7 +324,7 @@ Renvoie EXCLUSIVEMENT un JSON valide respectant ce format précis :
             let response, dataResponse;
             for (const model of models) {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 30000);
+                const timeoutId = setTimeout(() => controller.abort(), 60000);
                 try {
                     response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
                         method: 'POST',
@@ -363,7 +363,7 @@ Renvoie EXCLUSIVEMENT un JSON valide respectant ce format précis :
 
         } catch (error) {
             const msg = error.name === 'AbortError'
-                ? 'La requête a pris trop de temps (> 30s). Vérifie ta connexion et réessaie.'
+                ? 'La requête a pris trop de temps (> 60s). Vérifie ta connexion et réessaie.'
                 : error.message;
             alert("Erreur lors de la génération : " + msg);
             resetToUpload();
