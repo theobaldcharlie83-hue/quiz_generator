@@ -1,3 +1,18 @@
+// --- Utilitaire : Validation du schéma JSON retourné par Gemini ---
+function validateQuizData(data) {
+    if (!data || typeof data !== 'object') throw new Error('Réponse invalide reçue de l\'IA.');
+    if (typeof data.title !== 'string' || !data.title.trim()) throw new Error('Le quiz ne contient pas de titre.');
+    if (!Array.isArray(data.questions) || data.questions.length === 0) throw new Error('Le quiz ne contient aucune question.');
+    const validTypes = ['qcm', 'boolean', 'direct'];
+    data.questions.forEach((q, i) => {
+        if (!validTypes.includes(q.type)) throw new Error(`Question ${i + 1} : type invalide "${q.type}".`);
+        if (typeof q.question !== 'string' || !q.question.trim()) throw new Error(`Question ${i + 1} : texte manquant.`);
+        if (q.type === 'qcm' && (!Array.isArray(q.options) || q.options.length !== 4)) throw new Error(`Question ${i + 1} (QCM) : 4 options requises.`);
+        if (q.type === 'direct' && (typeof q.direct_answer !== 'string' || !q.direct_answer.trim())) throw new Error(`Question ${i + 1} (directe) : réponse attendue manquante.`);
+    });
+    return data;
+}
+
 // --- Utilitaire : Distance de Levenshtein (tolérance aux fautes de frappe) ---
 function levenshtein(a, b) {
     const m = a.length, n = b.length;
@@ -24,9 +39,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const uploadSection = document.getElementById('upload-section');
     const quizSection = document.getElementById('quiz-section');
     const footerProgress = document.getElementById('footer-progress');
-    
-    console.log('[DEBUG] Initialisation des éléments DOM...');
-    console.log('[DEBUG] dropZone:', !!dropZone, 'fileInput:', !!fileInput, 'browseBtn:', !!browseBtn);
     
     const btnHome = document.getElementById('btn-home');
 
@@ -102,12 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.slider-config').forEach(sl => sl.addEventListener('input', updateTotal));
     btnHome.addEventListener('click', resetToUpload);
     
-    browseBtn.addEventListener('click', (e) => {
-        console.log('[DEBUG] Clic sur browseBtn');
-        fileInput.click();
-    });
-    
-    console.log('[DEBUG] Ecouteurs d\'événements attachés.');
+    browseBtn.addEventListener('click', () => fileInput.click());
 
 
     // Modal UI listeners
@@ -161,8 +168,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- API & Logique Principale ---
     async function processFiles(files) {
+        const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 Mo
         const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf'];
-        const valid = files.filter(f => validTypes.includes(f.type));
+        const valid = files.filter(f => validTypes.includes(f.type) && f.size <= MAX_FILE_SIZE);
+        const tooLarge = files.filter(f => validTypes.includes(f.type) && f.size > MAX_FILE_SIZE);
         const invalid = files.filter(f => !validTypes.includes(f.type));
 
         const errorBox = document.getElementById('upload-format-error');
@@ -170,6 +179,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Toujours effacer l'erreur précédente
         errorBox.classList.add('hidden');
+
+        if (tooLarge.length > 0) {
+            errorMsg.textContent = `❌ Fichier trop volumineux (max 10 Mo) : ${tooLarge.map(f => `"${f.name}"`).join(', ')}.`;
+            errorBox.classList.remove('hidden');
+            errorBox.classList.add('fade-in');
+        }
 
         if (invalid.length > 0) {
             const names = invalid.map(f => `"${f.name}"`).join(', ');
@@ -203,11 +218,16 @@ document.addEventListener('DOMContentLoaded', () => {
         valid.forEach((f, i) => {
             const item = document.createElement('div');
             item.className = 'flex items-center gap-2 text-xs font-semibold text-indigo-700';
-            item.innerHTML = `
-                <span class="w-5 h-5 rounded-full bg-secondary/10 flex items-center justify-center text-secondary shrink-0 font-black">${i + 1}</span>
-                <span class="truncate">${f.name}</span>
-                <span class="ml-auto text-indigo-300 shrink-0">${(f.size / 1024).toFixed(0)} Ko</span>
-            `;
+            const numSpan = document.createElement('span');
+            numSpan.className = 'w-5 h-5 rounded-full bg-secondary/10 flex items-center justify-center text-secondary shrink-0 font-black';
+            numSpan.textContent = i + 1;
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'truncate';
+            nameSpan.textContent = f.name;
+            const sizeSpan = document.createElement('span');
+            sizeSpan.className = 'ml-auto text-indigo-300 shrink-0';
+            sizeSpan.textContent = `${(f.size / 1024).toFixed(0)} Ko`;
+            item.append(numSpan, nameSpan, sizeSpan);
             modalFilesList.appendChild(item);
         });
 
@@ -295,16 +315,37 @@ Renvoie EXCLUSIVEMENT un JSON valide respectant ce format précis :
                 }
             };
 
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify(requestBody)
-            });
+            const models = [
+                'gemini-2.5-flash',
+                'gemini-2.0-flash',
+                'gemini-2.0-flash-lite',
+            ];
 
-            const dataResponse = await response.json();
-            if (!response.ok) throw new Error(dataResponse.error?.message || 'Erreur API Gemini');
+            let response, dataResponse;
+            for (const model of models) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000);
+                try {
+                    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(requestBody),
+                        signal: controller.signal
+                    });
+                    dataResponse = await response.json();
+                } finally {
+                    clearTimeout(timeoutId);
+                }
+                if (response.ok || (response.status !== 429 && response.status !== 503)) break;
+            }
+
+            if (!response.ok) {
+                const status = response.status;
+                const msg = dataResponse?.error?.message || '';
+                if (status === 429) throw new Error('Quota API dépassé sur tous les modèles. Réessaie dans quelques minutes.');
+                if (status === 400) throw new Error('Clé API invalide. Vérifie ta clé dans les réglages.');
+                throw new Error(msg || `Erreur API Gemini (${status})`);
+            }
 
             let rawText = dataResponse.candidates[0].content.parts[0].text.trim();
             if (rawText.startsWith("```json")) rawText = rawText.substring(7);
@@ -312,7 +353,7 @@ Renvoie EXCLUSIVEMENT un JSON valide respectant ce format précis :
             if (rawText.endsWith("```")) rawText = rawText.substring(0, rawText.length - 3);
             rawText = rawText.trim();
             
-            const data = JSON.parse(rawText);
+            const data = validateQuizData(JSON.parse(rawText));
             data.id = crypto.randomUUID();
             data.created_at = new Date().toISOString();
             
@@ -321,7 +362,10 @@ Renvoie EXCLUSIVEMENT un JSON valide respectant ce format précis :
             loadArchives();
 
         } catch (error) {
-            alert("Erreur lors de la génération : " + error.message);
+            const msg = error.name === 'AbortError'
+                ? 'La requête a pris trop de temps (> 30s). Vérifie ta connexion et réessaie.'
+                : error.message;
+            alert("Erreur lors de la génération : " + msg);
             resetToUpload();
         }
     }
@@ -356,10 +400,13 @@ Renvoie EXCLUSIVEMENT un JSON valide respectant ce format précis :
                 const textDiv = document.createElement('div');
                 textDiv.className = "flex-1 min-w-0 pointer-events-none";
                 const date = mission.created_at ? new Date(mission.created_at).toLocaleDateString('fr-FR') : 'Date inconnue';
-                textDiv.innerHTML = `
-                    <p class="text-[11px] font-bold text-indigo-900 truncate">${mission.title}</p>
-                    <p class="text-[9px] text-indigo-400 font-medium">${mission.topic} • ${date}</p>
-                `;
+                const titleP = document.createElement('p');
+                titleP.className = 'text-[11px] font-bold text-indigo-900 truncate';
+                titleP.textContent = mission.title;
+                const metaP = document.createElement('p');
+                metaP.className = 'text-[9px] text-indigo-400 font-medium';
+                metaP.textContent = `${mission.topic} • ${date}`;
+                textDiv.append(titleP, metaP);
 
                 // Bouton supprimer
                 const delBtn = document.createElement('button');
@@ -430,11 +477,16 @@ Renvoie EXCLUSIVEMENT un JSON valide respectant ce format précis :
             summaryData.forEach(point => {
                 const li = document.createElement('li');
                 li.className = 'flex items-start gap-3 text-indigo-800 font-semibold text-sm';
-                li.innerHTML = `
-                    <span class="mt-0.5 w-6 h-6 rounded-full bg-secondary/10 text-secondary flex items-center justify-center shrink-0">
-                        <span class="material-symbols-outlined text-base" style="font-variation-settings: 'FILL' 1;">check_circle</span>
-                    </span>
-                    <span>${point}</span>`;
+                const iconWrap = document.createElement('span');
+                iconWrap.className = 'mt-0.5 w-6 h-6 rounded-full bg-secondary/10 text-secondary flex items-center justify-center shrink-0';
+                const icon = document.createElement('span');
+                icon.className = 'material-symbols-outlined text-base';
+                icon.style.fontVariationSettings = "'FILL' 1";
+                icon.textContent = 'check_circle';
+                iconWrap.appendChild(icon);
+                const text = document.createElement('span');
+                text.textContent = point;
+                li.append(iconWrap, text);
                 summaryList.appendChild(li);
             });
             introSection.classList.remove('hidden');
@@ -485,11 +537,15 @@ Renvoie EXCLUSIVEMENT un JSON valide respectant ce format précis :
             qData.options.forEach((optText, index) => {
                 const btn = document.createElement('button');
                 btn.className = "group option-btn flex items-center gap-4 p-5 bg-white rounded-full border-4 border-transparent hover:border-secondary hover:shadow-xl transition-all text-left w-full";
-                btn.innerHTML = `
-                    <div class="w-12 h-12 rounded-full bg-indigo-50 flex shrink-0 items-center justify-center text-xl font-black text-secondary group-hover:bg-secondary group-hover:text-white transition-colors letter-circle">${letters[index]}</div>
-                    <span class="text-lg font-bold text-indigo-800 flex-1">${optText}</span>
-                    <span class="material-symbols-outlined ml-auto result-icon hidden"></span>
-                `;
+                const letterDiv = document.createElement('div');
+                letterDiv.className = 'w-12 h-12 rounded-full bg-indigo-50 flex shrink-0 items-center justify-center text-xl font-black text-secondary group-hover:bg-secondary group-hover:text-white transition-colors letter-circle';
+                letterDiv.textContent = letters[index];
+                const optSpan = document.createElement('span');
+                optSpan.className = 'text-lg font-bold text-indigo-800 flex-1';
+                optSpan.textContent = optText;
+                const iconSpan = document.createElement('span');
+                iconSpan.className = 'material-symbols-outlined ml-auto result-icon hidden';
+                btn.append(letterDiv, optSpan, iconSpan);
                 btn.addEventListener('click', () => handleOptionAnswer(index, btn, qData, 'qcm'));
                 optionsContainer.appendChild(btn);
             });
@@ -771,7 +827,12 @@ Renvoie EXCLUSIVEMENT un JSON valide respectant ce format précis :
             missed.forEach(r => {
                 const li = document.createElement('li');
                 li.className = 'flex items-start gap-2 text-xs font-semibold text-red-700';
-                li.innerHTML = `<span class="shrink-0 mt-0.5">❌</span><span>${r.question}</span>`;
+                const emoji = document.createElement('span');
+                emoji.className = 'shrink-0 mt-0.5';
+                emoji.textContent = '❌';
+                const questionSpan = document.createElement('span');
+                questionSpan.textContent = r.question;
+                li.append(emoji, questionSpan);
                 missedList.appendChild(li);
             });
         }
