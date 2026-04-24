@@ -37,10 +37,16 @@
 <!-- Header Mobile -->
 <header class="fixed top-0 w-full z-50 flex justify-between items-center px-6 py-3 bg-white/80 backdrop-blur-md md:hidden">
     <div class="text-2xl font-black text-yellow-500 font-headline">L'Odyssée</div>
+    <button id="sidebar-toggle" class="w-10 h-10 flex items-center justify-center rounded-full bg-indigo-100 text-indigo-700 hover:bg-indigo-200 transition-colors">
+        <span class="material-symbols-outlined text-xl">settings</span>
+    </button>
 </header>
 
+<!-- Overlay mobile -->
+<div id="sidebar-overlay" class="fixed inset-0 z-30 bg-indigo-900/40 backdrop-blur-sm hidden md:hidden"></div>
+
 <!-- Sidebar -->
-<aside class="fixed left-0 top-0 h-full w-72 flex flex-col py-8 z-40 bg-indigo-50 rounded-r-[3rem] hidden md:flex overflow-y-auto custom-scrollbar">
+<aside id="sidebar" class="fixed left-0 top-0 h-full w-72 flex flex-col py-8 z-40 bg-indigo-50 rounded-r-[3rem] overflow-y-auto custom-scrollbar transition-transform duration-300 -translate-x-full md:translate-x-0">
     <div class="px-8 mb-10">
         <div class="flex items-center gap-3 mb-2 cursor-pointer" id="btn-home">
             <div class="w-12 h-12 bg-primary-container rounded-2xl flex items-center justify-center shadow-lg">
@@ -74,12 +80,6 @@
                         <span class="text-[10px] font-bold text-indigo-400 uppercase">Total généré</span>
                         <span id="num-total-label" class="text-sm font-black text-indigo-900">10</span>
                     </div>
-                </div>
-                <div class="bg-surface-container-lowest p-4 rounded-2xl shadow-sm border border-outline-variant/20 space-y-3 mt-4">
-                    <h4 class="text-xs font-bold text-indigo-900 mb-2">Clé API Gemini (Google)</h4>
-                    <input type="password" id="api-key-input" class="w-full bg-white border border-indigo-100 rounded-lg p-2 text-xs font-medium text-indigo-900 focus:outline-none focus:border-secondary shadow-inner" placeholder="AIzaSy...">
-                    <button id="save-api-key-btn" class="w-full py-2 bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg hover:bg-indigo-200 transition-colors">Enregistrer</button>
-                    <p id="api-key-status" class="text-[10px] items-center gap-1 hidden font-bold"><span class="material-symbols-outlined text-[12px]">check_circle</span> Clé sauvegardée</p>
                 </div>
             </div>
         </div>

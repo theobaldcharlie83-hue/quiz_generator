@@ -42,24 +42,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const btnHome = document.getElementById('btn-home');
 
-    // --- Paramétrage de la clé API ---
-    const apiKeyInput = document.getElementById('api-key-input');
-    const saveApiKeyBtn = document.getElementById('save-api-key-btn');
-    const apiKeyStatus = document.getElementById('api-key-status');
-
-    if (localStorage.getItem('gemini_api_key')) {
-        apiKeyInput.value = localStorage.getItem('gemini_api_key');
-    }
-
-    saveApiKeyBtn.addEventListener('click', () => {
-        localStorage.setItem('gemini_api_key', apiKeyInput.value);
-        apiKeyStatus.classList.remove('hidden');
-        apiKeyStatus.classList.add('flex');
-        setTimeout(() => {
-            apiKeyStatus.classList.add('hidden');
-            apiKeyStatus.classList.remove('flex');
-        }, 2000);
-    });
+    // Clé API injectée au build via GitHub Secret VITE_GEMINI_API_KEY
+    const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
 
     // Sliders de Paramétrage Adulte
     const numQcmInput = document.getElementById('num-qcm-input');
@@ -109,6 +93,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Initiation : Charger les archives ---
     loadArchives();
+
+    // --- Tiroir sidebar mobile ---
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+    function openSidebar() {
+        sidebar.classList.remove('-translate-x-full');
+        sidebarOverlay.classList.remove('hidden');
+    }
+    function closeSidebar() {
+        sidebar.classList.add('-translate-x-full');
+        sidebarOverlay.classList.add('hidden');
+    }
+    sidebarToggle?.addEventListener('click', openSidebar);
+    sidebarOverlay?.addEventListener('click', closeSidebar);
 
     // UI Listeners
     document.querySelectorAll('.slider-config').forEach(sl => sl.addEventListener('input', updateTotal));
@@ -247,9 +247,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function submitFilesToAPI(files, qcm, bool, dir) {
-        const apiKey = localStorage.getItem('gemini_api_key');
+        const apiKey = GEMINI_API_KEY;
         if (!apiKey) {
-            alert("Attention : La clé API Gemini n'est pas configurée dans les réglages.");
+            alert("Erreur de configuration : la clé API Gemini est manquante. Contacte l'administrateur de l'application.");
             resetToUpload();
             return;
         }
