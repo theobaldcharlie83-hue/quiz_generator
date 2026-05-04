@@ -18,7 +18,7 @@ L'ensemble de la logique est centralisé dans `src/main.js` :
 4. **Moteur de Quiz** : Les fonctions `renderQuestion`, `handleOptionAnswer` et `handleDirectAnswer` gèrent la validation des réponses. La validation des questions ouvertes inclut une tolérance aux fautes de frappe via la **distance de Levenshtein** et une normalisation des chaînes (suppression d'accents/articles).
 
 ## Configuration API et Sécurité
-- L'application utilise **l'API Gemini** (`https://generativelanguage.googleapis.com/v1beta/models`) avec des modèles comme `gemini-2.5-flash` ou `gemini-2.0-flash`. L'avantage de Gemini est son excellent support natif de la vision (analyse d'images de cours).
+- L'application utilise **l'API Gemini** (`https://generativelanguage.googleapis.com/v1beta/models`). Un mécanisme de repli (fallback) est en place : si les quotas du modèle principal (`gemini-2.5-flash`) sont atteints, l'application bascule automatiquement sur des modèles alternatifs (`gemini-2.0-flash`, `gemini-1.5-flash`, etc.) pour assurer une disponibilité maximale. Son avantage est un excellent support natif de la vision.
 - **Sécurité (Alerte technique)** : L'application étant un pur frontend déployé sur GitHub Pages, la clé API (`VITE_GEMINI_API_KEY`) est injectée à la compilation. **Cette clé est donc visible publiquement dans le code JavaScript.** Pour la sécuriser, il faudrait un backend ou une fonction serverless.
 
 ## Arborescence
@@ -26,4 +26,10 @@ L'ensemble de la logique est centralisé dans `src/main.js` :
 - `src/main.js` : Toute la logique applicative.
 - `src/styles.css` : Quelques styles personnalisés et animations.
 - `vite.config.js` : Configuration du build et du plugin PWA.
-- `.env` (non versionné) : Sert à stocker `VITE_API_KEY` en local.
+- `.env` (non versionné) : Sert à stocker `VITE_GEMINI_API_KEY` en local.
+
+## Lancement Local
+L'application peut être exécutée localement via un environnement Vite :
+- `run.bat` : Script Batch qui lance le serveur Vite en arrière-plan, ouvre Chrome en mode App isolée, et tue le serveur automatiquement à la fermeture de Chrome.
+- `launcher.vbs` : Script VBScript permettant d'exécuter `run.bat` de manière totalement silencieuse (sans fenêtre de terminal visible).
+- `create_shortcut.bat` : Génère l'icône et crée un raccourci sur le bureau qui pointe vers `launcher.vbs`.
