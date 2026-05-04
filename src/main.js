@@ -42,9 +42,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const btnHome = document.getElementById('btn-home');
 
-    // Clé API injectée au build via GitHub Secret (VITE_API_KEY)
-    // ATTENTION: Sur un site statique, cette clé sera visible dans le code source du navigateur.
-    const API_KEY = import.meta.env.VITE_API_KEY || import.meta.env.VITE_OPENROUTER_API_KEY || '';
+    // Clé API injectée au build via GitHub Secret VITE_GEMINI_API_KEY
+    const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
 
     // Sliders de Paramétrage Adulte
     const numQcmInput = document.getElementById('num-qcm-input');
@@ -248,9 +247,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function submitFilesToAPI(files, qcm, bool, dir) {
-        const apiKey = API_KEY;
+        const apiKey = GEMINI_API_KEY;
         if (!apiKey) {
-            alert("Erreur de configuration : la clé API est manquante. Contacte l'administrateur de l'application.");
+            alert("Erreur de configuration : la clé API Gemini est manquante. Contacte l'administrateur de l'application.");
             resetToUpload();
             return;
         }
@@ -294,62 +293,61 @@ Renvoie EXCLUSIVEMENT un JSON valide respectant ce format précis :
   ]
 }`;
 
-            // Configuration des messages au format OpenAI / OpenRouter
-            const messages = [
-                {
-                    role: "user",
-                    content: [
-                        { type: "text", text: prompt }
-                    ]
-                }
-            ];
-
+            const geminiParts = [];
             for (const file of files) {
                 const base64String = await fileToBase64(file);
-                // Ajout de l'image au format vision
-                messages[0].content.push({
-                    type: "image_url",
-                    image_url: {
-                        url: base64String
+                const base64Data = base64String.split(',')[1];
+                const mimeType = file.type || "image/jpeg";
+                geminiParts.push({
+                    inline_data: {
+                        mime_type: mimeType,
+                        data: base64Data
                     }
                 });
             }
+            geminiParts.push({ text: prompt });
 
             const requestBody = {
-                model: "deepseek-v4-flash", // Utilisation du modèle DeepSeek
-                messages: messages,
-                temperature: 0.4
+                contents: [{ parts: geminiParts }],
+                generationConfig: {
+                    temperature: 0.4,
+                    responseMimeType: "application/json"
+                }
             };
 
+            const models = [
+                'gemini-2.5-flash',
+                'gemini-2.0-flash',
+                'gemini-2.0-flash-lite',
+            ];
+
             let response, dataResponse;
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 60000);
-            
-            try {
-                response = await fetch("https://api.deepseek.com/chat/completions", {
-                    method: 'POST',
-                    headers: { 
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${apiKey}` // Utilisation du Bearer token
-                    },
-                    body: JSON.stringify(requestBody),
-                    signal: controller.signal
-                });
-                dataResponse = await response.json();
-            } finally {
-                clearTimeout(timeoutId);
+            for (const model of models) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 60000);
+                try {
+                    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(requestBody),
+                        signal: controller.signal
+                    });
+                    dataResponse = await response.json();
+                } finally {
+                    clearTimeout(timeoutId);
+                }
+                if (response.ok || (response.status !== 429 && response.status !== 503)) break;
             }
 
             if (!response.ok) {
                 const status = response.status;
                 const msg = dataResponse?.error?.message || '';
-                if (status === 429) throw new Error('Quota API dépassé. Réessaie dans quelques minutes.');
-                if (status === 401 || status === 400) throw new Error('Clé API invalide. Vérifie ta clé dans les réglages.');
-                throw new Error(msg || `Erreur API (${status})`);
+                if (status === 429) throw new Error('Quota API dépassé sur tous les modèles. Réessaie dans quelques minutes.');
+                if (status === 400) throw new Error('Clé API invalide. Vérifie ta clé dans les réglages.');
+                throw new Error(msg || `Erreur API Gemini (${status})`);
             }
 
-            // Récupération du texte depuis le format OpenAI
-            let rawText = dataResponse.choices[0].message.content.trim();
+            let rawText = dataResponse.candidates[0].content.parts[0].text.trim();
             if (rawText.startsWith("```json")) rawText = rawText.substring(7);
             else if (rawText.startsWith("```")) rawText = rawText.substring(3);
             if (rawText.endsWith("```")) rawText = rawText.substring(0, rawText.length - 3);
