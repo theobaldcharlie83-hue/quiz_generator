@@ -31,14 +31,15 @@ if %errorlevel% neq 0 (
 echo  [2/2] Creation du raccourci sur le Bureau...
 
 set "ICO_PATH=%APP_DIR%\icon.ico"
-set "BAT_PATH=%APP_DIR%\run.bat"
+set "VBS_PATH=%APP_DIR%\launch.vbs"
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$WshShell = New-Object -ComObject WScript.Shell; " ^
   "$Desktop = [Environment]::GetFolderPath('Desktop'); " ^
   "$LnkPath = $Desktop + '\LAventure du Savoir.lnk'; " ^
   "$Shortcut = $WshShell.CreateShortcut($LnkPath); " ^
-  "$Shortcut.TargetPath = '%BAT_PATH%'; " ^
+  "$Shortcut.TargetPath = 'wscript.exe'; " ^
+  "$Shortcut.Arguments = '\""%VBS_PATH%\"\"'; " ^
   "$Shortcut.WorkingDirectory = '%APP_DIR%'; " ^
   "$Shortcut.IconLocation = '%ICO_PATH%'; " ^
   "$Shortcut.Description = 'LAventure du Savoir - Transforme tes cours en quiz !'; " ^
