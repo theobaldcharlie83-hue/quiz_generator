@@ -18,9 +18,8 @@ L'ensemble de la logique est centralisé dans `src/main.js` :
 4. **Moteur de Quiz** : Les fonctions `renderQuestion`, `handleOptionAnswer` et `handleDirectAnswer` gèrent la validation des réponses. La validation des questions ouvertes inclut une tolérance aux fautes de frappe via la **distance de Levenshtein** et une normalisation des chaînes (suppression d'accents/articles).
 
 ## Configuration API et Sécurité
-- L'application a récemment été migrée pour utiliser **l'API DeepSeek** (`https://api.deepseek.com/chat/completions`) avec le modèle `deepseek-v4-flash`.
-- **Sécurité (Alerte technique)** : L'application étant un pur frontend déployé sur GitHub Pages, la clé API (`VITE_API_KEY`) est injectée à la compilation. **Cette clé est donc visible publiquement dans le code JavaScript.** 
-- **Limitation Vision (DeepSeek)** : Actuellement, l'API native de DeepSeek ne supporte pas de recevoir des images directement dans le tableau `messages` via le format `image_url` standard d'OpenAI. Un appel contenant une image retournera une erreur. Pour que l'application fonctionne avec des images, il faut soit un modèle Vision compatible, soit repasser sur une API compatible Vision (ex: Gemini ou un wrapper OCR + LLM).
+- L'application utilise **l'API Gemini** (`https://generativelanguage.googleapis.com/v1beta/models`) avec des modèles comme `gemini-2.5-flash` ou `gemini-2.0-flash`. L'avantage de Gemini est son excellent support natif de la vision (analyse d'images de cours).
+- **Sécurité (Alerte technique)** : L'application étant un pur frontend déployé sur GitHub Pages, la clé API (`VITE_GEMINI_API_KEY`) est injectée à la compilation. **Cette clé est donc visible publiquement dans le code JavaScript.** Pour la sécuriser, il faudrait un backend ou une fonction serverless.
 
 ## Arborescence
 - `index.html` : Structure de la page et templates de l'interface.
